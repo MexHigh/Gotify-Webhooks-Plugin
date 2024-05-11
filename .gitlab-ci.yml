@@ -1,0 +1,51 @@
+image: docker:dind
+
+stages:
+  - build
+  - upload
+  - release
+
+build-plugin:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - make
+    - make build
+  artifacts:
+    when: on_success
+    expire_in: 1 day
+    paths:
+      - build
+
+push-plugin:
+  stage: upload
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-amd64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-amd64.so"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm-7.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-arm-7.so"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-arm64.so"'
+
+release-plugin:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Doing release"
+  release:
+    name: "Release $CI_COMMIT_TAG"
+    description: "Release for version $CI_COMMIT_TAG for the Gotify Webhooks Plugin"
+    tag_name: "$CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: gotify-webhooks-linux-amd64.so
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-amd64.so"
+          link_type: package
+        - name: gotify-webhooks-linux-arm-7.so
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-arm-7.so"
+          link_type: package
+        - name: gotify-webhooks-linux-arm64.so
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}/gotify-webhooks-linux-arm64.so"
+          link_type: package
