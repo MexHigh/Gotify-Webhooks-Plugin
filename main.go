@@ -1,16 +1,26 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gotify/plugin-api"
 )
 
+const routeName = "webhook"
+
+const (
+	PayloadTypeUnknown = iota
+	PayloadTypeJSON
+)
+
 // GetGotifyPluginInfo returns gotify plugin info
 func GetGotifyPluginInfo() plugin.Info {
 	return plugin.Info{
-		Name:        "Webhook Plugin",
+		Name:        "Webhooks",
 		Description: "Plugin that enables Gotify to receive webhooks",
 		ModulePath:  "git.leon.wtf/leon/gotify-webhook-plugin",
 		Author:      "Leon Schmidt",
@@ -26,40 +36,86 @@ type Plugin struct {
 }
 
 // Enable implements plugin.Plugin
-func (c *Plugin) Enable() error {
+func (p *Plugin) Enable() error {
 	return nil
 }
 
 // Disable implements plugin.Plugin
-func (c *Plugin) Disable() error {
+func (p *Plugin) Disable() error {
 	return nil
 }
 
 // GetDisplay implements plugin.Displayer
-func (c *Plugin) GetDisplay(location *url.URL) string {
-	if c.userCtx.Admin {
-		return "You are an admin! You have super cow powers."
-	} else {
-		return "You are **NOT** an admin! You can do nothing:("
+func (p *Plugin) GetDisplay(location *url.URL) string {
+	baseHost := ""
+	if location != nil {
+		baseHost = fmt.Sprintf("%s://%s", location.Scheme, location.Host)
 	}
+	return fmt.Sprintf("Use this URL to recieve webhooks: %s%s%s", baseHost, p.basePath, routeName)
 }
 
 // SetMessageHandler implements plugin.Messenger
-func (c *Plugin) SetMessageHandler(h plugin.MessageHandler) {
+func (p *Plugin) SetMessageHandler(h plugin.MessageHandler) {
 	// invoced during initialization
-	c.msgHandler = h
+	p.msgHandler = h
 }
 
 // RegisterWebhook implements plugin.Webhooker
-func (c *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
-	c.basePath = basePath
-	mux.POST("/webhook", func(con *gin.Context) {
-		// TODO
-		c.msgHandler.SendMessage(plugin.Message{
-			Title:   "Recieved webhook!",
-			Message: "Bimbim bambam",
-		})
-	})
+func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
+	p.basePath = basePath
+
+	webhookHandler := func(c *gin.Context) {
+		// read body
+		bytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			p.msgHandler.SendMessage(makeMarkdownMessage(
+				"Error reading request body",
+				err.Error(),
+				c.RemoteIP(),
+			))
+			return
+		}
+
+		// try to parse json
+		payloadType := PayloadTypeUnknown
+		var data interface{}
+		err = json.Unmarshal(bytes, &data)
+		if err != nil {
+			payloadType = PayloadTypeUnknown
+		} else {
+			payloadType = PayloadTypeJSON
+		}
+
+		switch payloadType {
+		case PayloadTypeJSON:
+			// re-indent JSON
+			jsonStr, err := json.MarshalIndent(data, "", "    ")
+			if err != nil {
+				p.msgHandler.SendMessage(makeMarkdownMessage(
+					"Error re-marshalling payload",
+					err.Error(),
+					c.RemoteIP(),
+				))
+				return
+			}
+			p.msgHandler.SendMessage(makeMarkdownMessage(
+				"Recieved webhook",
+				string(jsonStr),
+				c.RemoteIP(),
+			))
+		// TODO add more types?
+		case PayloadTypeUnknown:
+			// just send the string
+			p.msgHandler.SendMessage(makeMarkdownMessage(
+				"Recieved non-JSON webhook",
+				string(bytes),
+				c.RemoteIP(),
+			))
+		}
+	}
+
+	mux.POST("/"+routeName, webhookHandler)
+	mux.PUT("/"+routeName, webhookHandler)
 }
 
 // NewGotifyPluginInstance creates a plugin instance for a user context.
