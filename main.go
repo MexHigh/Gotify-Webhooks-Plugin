@@ -71,7 +71,7 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 			p.msgHandler.SendMessage(makeMarkdownMessage(
 				"Error reading request body",
 				err.Error(),
-				c.RemoteIP(),
+				c.ClientIP(),
 			))
 			return
 		}
@@ -94,14 +94,14 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 				p.msgHandler.SendMessage(makeMarkdownMessage(
 					"Error re-marshalling payload",
 					err.Error(),
-					c.RemoteIP(),
+					c.ClientIP(),
 				))
 				return
 			}
 			p.msgHandler.SendMessage(makeMarkdownMessage(
 				"Recieved webhook",
 				string(jsonStr),
-				c.RemoteIP(),
+				c.ClientIP(),
 			))
 		// TODO add more types?
 		case PayloadTypeUnknown:
@@ -109,7 +109,7 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 			p.msgHandler.SendMessage(makeMarkdownMessage(
 				"Recieved non-JSON webhook",
 				string(bytes),
-				c.RemoteIP(),
+				c.ClientIP(),
 			))
 		}
 	}
