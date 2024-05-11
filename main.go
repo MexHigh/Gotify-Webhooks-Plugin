@@ -23,7 +23,7 @@ func GetGotifyPluginInfo() plugin.Info {
 		Name:        "Webhooks",
 		Description: "Plugin that enables Gotify to receive webhooks",
 		ModulePath:  "git.leon.wtf/leon/gotify-webhook-plugin",
-		Author:      "Leon Schmidt",
+		Author:      "Leon Schmidt <mail@leon-schmidt.dev>",
 		Website:     "https://leon-schmidt.dev",
 	}
 }
@@ -89,7 +89,7 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 		switch payloadType {
 		case PayloadTypeJSON:
 			// re-indent JSON
-			jsonStr, err := json.MarshalIndent(data, "", "    ")
+			jsonStr, err := json.MarshalIndent(data, "", "  ")
 			if err != nil {
 				p.msgHandler.SendMessage(makeMarkdownMessage(
 					"Error re-marshalling payload",
