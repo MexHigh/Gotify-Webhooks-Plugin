@@ -37,7 +37,7 @@ push-plugin:
     - 'export GO_VERS=$(cat build/gotify-server-go-version)'
     - 'echo "GO_VERS=$GO_VERS" > variables.env'
     # check if upload already exists
-    - '! curl --silent --head --output /dev/null --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"'
+    - '! curl --head --output /dev/null --fail "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"'
     # upload
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-amd64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"'
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm-7.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-arm-7.so"'
