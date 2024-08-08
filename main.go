@@ -13,15 +13,16 @@ import (
 const routeName = "webhook"
 
 const (
-	PayloadTypeUnknown = iota
-	PayloadTypeJSON
+	ContentTypeUnknown = iota
+	ContentTypeJSON
+	ContentTypeMarkdown
 )
 
 // GetGotifyPluginInfo returns gotify plugin info
 func GetGotifyPluginInfo() plugin.Info {
 	return plugin.Info{
 		Name:        "Webhooks",
-		Description: "Plugin that enables Gotify to receive webhooks",
+		Description: "Plugin that enables Gotify to receive generic webhooks",
 		ModulePath:  "git.leon.wtf/leon/gotify-webhook-plugin",
 		Author:      "Leon Schmidt <mail@leon-schmidt.dev>",
 		Website:     "https://leon-schmidt.dev",
@@ -45,13 +46,18 @@ func (p *Plugin) Disable() error {
 	return nil
 }
 
+const helpMessageTemplate = "Use this **webhook URL**: %s\n\n" +
+	"You can set the content type of the payload via the `content-type` query parameter (e.g. `%s?content-type=application/json`) or the `content-type` or `x-content-type` request headers.\n\n" +
+	"The following content types are supported: `application/json`, `text/markdown`"
+
 // GetDisplay implements plugin.Displayer
 func (p *Plugin) GetDisplay(location *url.URL) string {
 	baseHost := ""
 	if location != nil {
 		baseHost = fmt.Sprintf("%s://%s", location.Scheme, location.Host)
 	}
-	return fmt.Sprintf("Use this URL to recieve webhooks: %s%s%s", baseHost, p.basePath, routeName)
+	webhookURL := baseHost + p.basePath + routeName
+	return fmt.Sprintf(helpMessageTemplate, webhookURL, webhookURL)
 }
 
 // SetMessageHandler implements plugin.Messenger
@@ -72,22 +78,35 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 				"Error reading request body",
 				err.Error(),
 				c.ClientIP(),
+				false,
 			))
 			return
 		}
 
-		// try to parse json
-		payloadType := PayloadTypeUnknown
-		var data interface{}
-		err = json.Unmarshal(bytes, &data)
-		if err != nil {
-			payloadType = PayloadTypeUnknown
-		} else {
-			payloadType = PayloadTypeJSON
+		contentType := getContentTypeFromRequest(c.Request)
+		// if content type is unknown, try JSON anyway (some clients cannot set a content-type)
+		if contentType == ContentTypeUnknown {
+			var data interface{}
+			err = json.Unmarshal(bytes, &data)
+			if err == nil {
+				contentType = ContentTypeJSON
+			}
 		}
 
-		switch payloadType {
-		case PayloadTypeJSON:
+		switch contentType {
+		case ContentTypeJSON:
+			// try to parse json to verify format
+			var data interface{}
+			err = json.Unmarshal(bytes, &data)
+			if err != nil {
+				p.msgHandler.SendMessage(makeMarkdownMessage(
+					"Error parsing JSON message",
+					err.Error(),
+					c.ClientIP(),
+					false,
+				))
+				return
+			}
 			// re-indent JSON
 			jsonStr, err := json.MarshalIndent(data, "", "  ")
 			if err != nil {
@@ -95,21 +114,30 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 					"Error re-marshalling payload",
 					err.Error(),
 					c.ClientIP(),
+					true,
 				))
 				return
 			}
 			p.msgHandler.SendMessage(makeMarkdownMessage(
-				"Recieved webhook",
+				"Recieved webhook with JSON",
 				string(jsonStr),
 				c.ClientIP(),
+				true,
 			))
-		// TODO add more types?
-		case PayloadTypeUnknown:
-			// just send the string
+		case ContentTypeMarkdown:
 			p.msgHandler.SendMessage(makeMarkdownMessage(
-				"Recieved non-JSON webhook",
+				"Recieved webhook with Markdown",
 				string(bytes),
 				c.ClientIP(),
+				false,
+			))
+		case ContentTypeUnknown:
+			// just send the string
+			p.msgHandler.SendMessage(makeMarkdownMessage(
+				"Recieved webhook with unknown content type",
+				string(bytes),
+				c.ClientIP(),
+				true,
 			))
 		}
 	}
