@@ -1,7 +1,30 @@
 stages:
+  - prep
   - build
   - upload
   - release
+
+get-gotify-data:
+  stage: prep
+  rules:
+    - if: $CI_COMMIT_TAG
+  tags:
+    - unprivileged
+  image: alpine
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - export GOTIFY_VERSION=$(curl -s https://api.github.com/repos/gotify/server/releases/latest | jq -r .tag_name)
+    - export GO_VERSION=$(curl -s https://raw.githubusercontent.com/gotify/server/${GOTIFY_VERSION}/GO_VERSION)
+    - echo "GOTIFY_VERSION=$GOTIFY_VERSION" > gotify-data.env
+    - echo "GO_VERSION=$GO_VERSION" >> gotify-data.env
+    # just for debugging
+    - cat gotify-data.env
+  artifacts:
+    paths:
+      - gotify-data.env # so that i can be changed afterwards
+    reports:
+      dotenv: gotify-data.env
 
 build-plugin:
   stage: build
@@ -11,11 +34,18 @@ build-plugin:
     - docker
     - real-dind
   image: docker:cli
+  needs:
+    - job: get-gotify-data
+      artifacts: true
   before_script:
     - apk add --no-cache go make
   script:
-    - make download-tools
-    - make build
+    # just for debugging
+    - echo $GOTIFY_VERSION
+    - echo $GO_VERSION
+    # actual build
+    - make download-tools GOTIFY_VERSION=$GOTIFY_VERSION
+    - make build GOTIFY_VERSION=$GOTIFY_VERSION
   artifacts:
     when: on_success
     expire_in: 1 day
@@ -27,46 +57,61 @@ push-plugin:
   rules:
     - if: $CI_COMMIT_TAG
   needs:
+    - job: get-gotify-data
+      artifacts: true
     - job: build-plugin
       artifacts: true
   image: curlimages/curl
   script:
-    # prepare go version variable for release
-    # see https://docs.gitlab.com/ee/user/project/releases/release_cicd_examples.html#create-release-metadata-in-a-custom-script
-    - 'export GO_VERS=$(cat build/gotify-server-go-version)'
-    - 'echo "GO_VERS=$GO_VERS" > variables.env'
+    # just for debugging
+    - echo $GOTIFY_VERSION
+    - echo $GO_VERSION
+    # copy old envs (required later)
+    - cat gotify-data.env > upload.env
     # check if upload already exists
-    - 'if curl --head --output /dev/null --fail "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"; then echo "Package already exists!"; false; else true; fi'
+    - curl --head --output /dev/null --fail "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-amd64.so" && echo "Package already exists!" && exit 2
     # upload
-    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-amd64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"'
-    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm-7.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-arm-7.so"'
-    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-arm64.so"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-amd64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-amd64.so"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm-7.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm-7.so"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm64.so"'
+    - echo "PACKAGE_UPLOADED=true" >> upload.env
+    # just for debugging
+    - cat upload.env
+  allow_failure:
+    exit_codes: [2]
   artifacts:
     reports:
-      dotenv: variables.env
+      dotenv: upload.env
 
 release-plugin:
   stage: release
   rules:
     - if: $CI_COMMIT_TAG
   needs:
+    - job: get-gotify-data
+      artifacts: true
+    - job: build-plugin
+      artifacts: true
     - job: push-plugin
       artifacts: true
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   script:
-    - 'echo "Releasing ${CI_COMMIT_TAG}_go${GO_VERS}"'
+    - '[ "$PACKAGE_UPLOADED" = "true" ] || (echo "Skipping release, package was not uploaded"; exit 2)'
+    - echo "Releasing ${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}"
   release:
-    name: "Release ${CI_COMMIT_TAG}_go${GO_VERS}"
-    description: "Release of the Gotify Webhooks Plugin in version ${CI_COMMIT_TAG}_go${GO_VERS}. Compatible with all versions of Gotify built with Go ${GO_VERS}!"
+    name: "Release ${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}"
+    description: "Release of the Gotify Webhooks Plugin version ${CI_COMMIT_TAG}. Compatible only with version ${GOTIFY_VERSION} of Gotify!"
     tag_name: "$CI_COMMIT_TAG"
     assets:
       links:
         - name: gotify-webhooks-linux-amd64.so
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-amd64.so"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-amd64.so"
           link_type: package
         - name: gotify-webhooks-linux-arm-7.so
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-arm-7.so"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm-7.so"
           link_type: package
         - name: gotify-webhooks-linux-arm64.so
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_go${GO_VERS}/gotify-webhooks-linux-arm64.so"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm64.so"
           link_type: package
+  allow_failure:
+    exit_codes: [2]
