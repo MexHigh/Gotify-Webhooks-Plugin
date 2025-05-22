@@ -17,6 +17,8 @@ get-gotify-data:
     - export GOTIFY_VERSION=$(curl -s https://api.github.com/repos/gotify/server/releases/latest | jq -r .tag_name)
     - export GO_VERSION=$(curl -s curl -s https://raw.githubusercontent.com/gotify/server/${GOTIFY_VERSION}/GO_VERSION)
     - echo -e "GOTIFY_VERSION=$GOTIFY_VERSION\nGO_VERSION=$GO_VERSION" > build.env
+    # just for debugging
+    - cat build.env
   artifacts:
     reports:
       dotenv: build.env
@@ -29,9 +31,16 @@ build-plugin:
     - docker
     - real-dind
   image: docker:cli
+  needs:
+    - job: get-gotify-data
+      artifacts: true
   before_script:
     - apk add --no-cache go make
   script:
+    # just for debugging
+    - echo $GOTIFY_VERSION
+    - echo $GO_VERSION
+    # actual build
     - make download-tools GOTIFY_VERSION=$GOTIFY_VERSION
     - make build GOTIFY_VERSION=$GOTIFY_VERSION
   artifacts:
@@ -45,27 +54,32 @@ push-plugin:
   rules:
     - if: $CI_COMMIT_TAG
   needs:
+    - job: get-gotify-data
+      artifacts: true
     - job: build-plugin
       artifacts: true
   image: curlimages/curl
   script:
+    # just for debugging
+    - echo $GOTIFY_VERSION
+    - echo $GO_VERSION
     # check if upload already exists
     - 'if curl --head --output /dev/null --fail "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_gotify${GOTIFY_VERSION}_go${GO_VERSION}/gotify-webhooks-linux-amd64.so"; then echo "Package already exists!"; false; else true; fi'
     # upload
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-amd64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_gotify${GOTIFY_VERSION}_go${GO_VERSION}/gotify-webhooks-linux-amd64.so"'
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm-7.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_gotify${GOTIFY_VERSION}_go${GO_VERSION}/gotify-webhooks-linux-arm-7.so"'
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file build/gotify-webhooks-linux-arm64.so "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${CI_COMMIT_TAG}_gotify${GOTIFY_VERSION}_go${GO_VERSION}/gotify-webhooks-linux-arm64.so"'
-  artifacts:
-    reports:
-      dotenv: variables.env
 
 release-plugin:
   stage: release
   rules:
     - if: $CI_COMMIT_TAG
   needs:
-    - job: push-plugin
+    - job: get-gotify-data
       artifacts: true
+    - job: build-plugin
+      artifacts: true
+    - job: push-plugin
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   script:
     - 'echo "Releasing ${CI_COMMIT_TAG}_gotify${GOTIFY_VERSION}_go${GO_VERSION}"'
