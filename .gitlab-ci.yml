@@ -16,7 +16,7 @@ get-gotify-data:
   script:
     - export GOTIFY_VERSION=$(curl -s https://api.github.com/repos/gotify/server/releases/latest | jq -r .tag_name)
     - export GO_VERSION=$(curl -s curl -s https://raw.githubusercontent.com/gotify/server/${GOTIFY_VERSION}/GO_VERSION)
-    - echo -e "GOTIFY_VERSION=$GOTIFY_VERSION\GO_VERSION=$GO_VERSION\n" > build.env
+    - echo -e "GOTIFY_VERSION=$GOTIFY_VERSION\nGO_VERSION=$GO_VERSION" > build.env
   artifacts:
     reports:
       dotenv: build.env
