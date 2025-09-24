@@ -138,7 +138,7 @@ create-release:
       artifacts: true
     - job: push-plugin
       artifacts: true
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
   script:
     - '[ "$PACKAGE_UPLOADED" = "true" ] || (echo "Skipping release, package was not uploaded"; exit 2)'
     - echo "Releasing ${TARGET_TAG}"
@@ -172,14 +172,21 @@ update-release-assets:
       artifacts: true
     - job: push-plugin
       artifacts: true
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  before_script:
+    - glab auth login --hostname $CI_SERVER_HOST --job-token $CI_JOB_TOKEN
   script:
     - '[ "${PACKAGE_UPLOADED:-}" = "true" ] || (echo "Skipping update, package not uploaded"; exit 2)'
     - echo "Updating release assets for tag ${TARGET_TAG}"
     - NAME_SUFFIX="(built for Gotify ${GOTIFY_VERSION})"
-    - release-cli update --tag-name "$TARGET_TAG" \
-        --assets-link "{\"name\":\"gotify-webhooks-linux-amd64.so ${NAME_SUFFIX}\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-amd64.so\"}" \
-        --assets-link "{\"name\":\"gotify-webhooks-linux-arm-7.so ${NAME_SUFFIX}\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm-7.so\"}" \
-        --assets-link "{\"name\":\"gotify-webhooks-linux-arm64.so ${NAME_SUFFIX}\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm64.so\"}"
+    - |
+      cat > assets-links.json <<EOF
+      [
+        {"name":"gotify-webhooks-linux-amd64.so ${NAME_SUFFIX}","url":"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-amd64.so","link_type": "package"},
+        {"name":"gotify-webhooks-linux-arm-7.so ${NAME_SUFFIX}","url":"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm-7.so","link_type": "package"},
+        {"name":"gotify-webhooks-linux-arm64.so ${NAME_SUFFIX}","url":"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gotify-webhooks/${TARGET_TAG}-gotify_${GOTIFY_VERSION}-go_${GO_VERSION}/gotify-webhooks-linux-arm64.so","link_type": "package"}
+      ]
+      EOF
+    - glab release upload $TARGET_TAG --assets-links="$(cat assets-links.json)"
   allow_failure:
     exit_codes: [2]
