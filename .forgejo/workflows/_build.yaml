@@ -1,0 +1,101 @@
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        required: true
+        type: string
+      target-tag:
+        required: true
+        type: string
+      gotify-version:
+        required: true
+        type: string
+      go-version:
+        required: true
+        type: string
+
+jobs:
+  check-update-required:
+    runs-on: alpine-node-lts
+    outputs:
+      update: ${{ steps.check.outputs.update }}
+    steps:
+      - name: Check if update is required
+        id: check
+        run: |
+          if curl --head --output /dev/null --fail "${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so"
+          then
+            echo "Package does exist, no update required."
+            echo "update=no" >> $FORGEJO_OUTPUT
+          else
+            echo "Package does not exist, update required."
+            echo "update=yes" >> $FORGEJO_OUTPUT
+          fi
+
+  build-and-push-plugin:
+    runs-on: alpine-node-lts
+    needs: 
+      - check-update-required
+    if: ${{ needs.check-update-required.outputs.update == 'yes' }}
+    services:
+      docker-dind:
+        image: docker:24-dind
+        options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: "" # otherwise, docker spawns only the TLS endpoint
+        ports:
+          - 2375:2375
+        volumes:
+          - "/workspace:/workspace"
+          #- "${{ forgejo.workspace }}:${{ forgejo.workspace }}" # required for mouting
+    env:
+      PODMAN_USERNS: keep-ip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: apk add --no-cache jq make go docker-cli
+      - name: Print inputs
+        run: |
+          echo "package-name:   ${{ inputs.package-name }}"
+          echo "target-tag:     ${{ inputs.target-tag }}"
+          echo "gotify-version: ${{ inputs.gotify-version }}"
+          echo "gp-version:     ${{ inputs.go-version }}"
+      - name: Download tools
+        run: make download-tools GOTIFY_VERSION=${{ inputs.gotify-version }}
+      - name: Wait for docker daemon to come up
+        run: |
+          for i in {1..30}; do
+            if nc -z docker-dind 2375; then
+              echo "Docker daemon ready"
+              exit 0
+            fi
+            echo "Waiting $i/30"
+            sleep 2
+          done
+          echo "Timeout after 60 seconds" >&2
+          exit 1
+      - name: DEBUG
+        run: |
+          echo "PWD: $(pwd)"
+          echo "go path: $(go env GOPATH)"
+          echo "list pwd without docker"
+          ls -lah $(pwd)
+          echo "list / in docker"
+          docker run --rm -v "/:/app:ro" alpine ls -lah /app
+          echo "List pwd with docker"
+          docker run --rm -v $(pwd):/proj:ro alpine ls -lah /proj
+      #- name: Build using docker:dind service
+      #  run: |
+      #    export DOCKER_HOST=tcp://docker-dind:2375
+      #    make build GOTIFY_VERSION=${{ inputs.gotify-version }}
+      - name: Upload all
+        run: |
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm-7.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm-7.so
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm64.so
