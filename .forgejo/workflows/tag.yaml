@@ -1,0 +1,40 @@
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  get-gotify-data:
+    runs-on: alpine-node-lts
+    outputs:
+      gotify-version: ${{ steps.get-versions.outputs.gotify-version }}
+      go-version: ${{ steps.get-versions.outputs.go-version }}
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache curl jq
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Get upstream Gotify and Go versions
+        id: get-versions
+        run: |
+          GOTIFY_VERSION="$(curl -s https://api.github.com/repos/gotify/server/releases/latest | jq -r .tag_name)"
+          echo $GOTIFY_VERSION
+          echo "gotify-version=$GOTIFY_VERSION" >> $FORGEJO_OUTPUT
+
+          GO_VERSION="$(curl -s https://raw.githubusercontent.com/gotify/server/${GOTIFY_VERSION}/GO_VERSION)"
+          echo $GO_VERSION 
+          echo "go-version=$GO_VERSION" >> $FORGEJO_OUTPUT
+
+  invoke-build:
+    runs-on: alpine-node-lts
+    needs:
+      - get-gotify-data
+    uses: ./.forgejo/workflows/_build.yaml
+    with:
+      package-name: gotify-webhooks
+      target-tag: ${{ forgejo.ref_name }}
+      gotify-version: ${{ needs.get-gotify-data.outputs.gotify-version }}
+      go-version: ${{ needs.get-gotify-data.outputs.go-version }}
+    secrets: inherit

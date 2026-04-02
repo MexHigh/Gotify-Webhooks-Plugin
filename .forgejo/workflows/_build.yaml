@@ -1,0 +1,95 @@
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        required: true
+        type: string
+      target-tag:
+        required: true
+        type: string
+      gotify-version:
+        required: true
+        type: string
+      go-version:
+        required: true
+        type: string
+
+jobs:
+  check-update-required:
+    runs-on: alpine-node-lts
+    outputs:
+      update: ${{ steps.check.outputs.update }}
+    steps:
+      - name: Check if update is required
+        id: check
+        run: |
+          if curl --head --output /dev/null --fail "${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so"
+          then
+            echo "Package does exist, no update required."
+            echo "update=no" >> $FORGEJO_OUTPUT
+          else
+            echo "Package does not exist, update required."
+            echo "update=yes" >> $FORGEJO_OUTPUT
+          fi
+
+  build-and-push-plugin:
+    needs: 
+      - check-update-required
+    if: ${{ needs.check-update-required.outputs.update == 'yes' }}
+    runs-on: docker
+    container:
+      # We need to use docker:dind directly instead of via `services`
+      # since the Gotify Makefile uses `docker run` with volume mounts.
+      # Mounting them to the dind service is not only hacky, but also
+      # volume mounts are forbidden by the runner. 
+      image: docker:dind
+      options: --privileged
+    env:
+      DOCKER_HOST: unix:///var/lib/docker.sock
+    steps:
+      - name: Print inputs
+        run: |
+          echo "package-name:   ${{ inputs.package-name }}"
+          echo "target-tag:     ${{ inputs.target-tag }}"
+          echo "gotify-version: ${{ inputs.gotify-version }}"
+          echo "gp-version:     ${{ inputs.go-version }}"
+      - name: Install dependencies
+        run: apk add --no-cache bash git nodejs jq make go curl
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Start Docker daemon
+        run: |
+          dockerd-entrypoint.sh &
+          
+          # wait for daemon to come up
+          for i in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              echo "Docker daemon ready"
+              break
+            fi
+            echo "Waiting $i/30"
+            sleep 2
+          done
+
+          # final check
+          docker info
+      - name: Download tools
+        run: make download-tools GOTIFY_VERSION=${{ inputs.gotify-version }}
+      - name: Build
+        run: |
+          make build GOTIFY_VERSION=${{ inputs.gotify-version }}
+      - name: Upload all
+        run: |
+          echo "[DEBUG] Actor: ${{ forgejo.actor }}"
+          [[ "$(echo -n "${{ secrets.REGISTRY_TOKEN }}" | wc -c)" -eq 40 ]] && echo "Key format matches" || echo "Key format DOES NOT MATCH! (Length is $(echo -n "${{ secrets.REGISTRY_TOKEN }}" | wc -c))"
+          echo "[DEBUG] Constructed upload url for first package:"
+          echo "${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so"
+          
+          curl --fail --user "${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }}" --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so
+          curl --fail --user "${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }}" --upload-file build/${{ inputs.package-name }}-linux-arm-7.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm-7.so
+          curl --fail --user "${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }}" --upload-file build/${{ inputs.package-name }}-linux-arm64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm64.so

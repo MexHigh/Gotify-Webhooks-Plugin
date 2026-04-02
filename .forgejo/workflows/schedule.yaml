@@ -1,0 +1,64 @@
+on:
+  workflow_call:
+  schedule:
+    - cron: '01 22 * * *' # 22:01
+
+jobs:
+  set-plugin-tag:
+    runs-on: alpine-node-lts
+    outputs:
+      target-tag: ${{ steps.define-tag.outputs.target-tag }}
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache git
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Determine latest tag
+        id: define-tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --prune
+          LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No git tag found, aborting" >&2
+            exit 1
+          fi
+          echo "target-tag=$LATEST_TAG" >> $FORGEJO_OUTPUT
+
+  get-gotify-data:
+    runs-on: alpine-node-lts
+    outputs:
+      gotify-version: ${{ steps.get-versions.outputs.gotify-version }}
+      go-version: ${{ steps.get-versions.outputs.go-version }}
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache curl jq
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Get upstream Gotify and Go versions
+        id: get-versions
+        run: |
+          GOTIFY_VERSION="$(curl -s https://api.github.com/repos/gotify/server/releases/latest | jq -r .tag_name)"
+          echo $GOTIFY_VERSION
+          echo "gotify-version=$GOTIFY_VERSION" >> $FORGEJO_OUTPUT
+
+          GO_VERSION="$(curl -s https://raw.githubusercontent.com/gotify/server/${GOTIFY_VERSION}/GO_VERSION)"
+          echo $GO_VERSION 
+          echo "go-version=$GO_VERSION" >> $FORGEJO_OUTPUT
+
+  invoke-build:
+    runs-on: alpine-node-lts
+    needs:
+      - set-plugin-tag
+      - get-gotify-data
+    uses: ./.forgejo/workflows/_build.yaml
+    with:
+      package-name: gotify-webhooks
+      target-tag: ${{ needs.set-plugin-tag.outputs.target-tag }}
+      gotify-version: ${{ needs.get-gotify-data.outputs.gotify-version }}
+      go-version: ${{ needs.get-gotify-data.outputs.go-version }}
+    secrets: inherit
