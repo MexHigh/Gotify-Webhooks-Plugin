@@ -1,0 +1,63 @@
+on:
+  push:
+
+jobs:
+  build-and-push-plugin:
+    runs-on: alpine-node-lts
+    services:
+      docker-dind:
+        image: docker:24-dind
+        options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        ports:
+          - 2375:2375
+        volumes:
+          - "/workspace:/workspace"
+    env:
+      _DOCKER_HOST_HOSTONLY: docker-dind
+      DOCKER_HOST: tcp://docker-dind:2375
+      PODMAN_USERNS: keep-ip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: apk add --no-cache jq make go docker-cli
+      - name: Download tools
+        run: make download-tools GOTIFY_VERSION=v2.9.1
+      - name: Wait for docker daemon to come up
+        run: |
+          for i in {1..30}; do
+            if nc -z $_DOCKER_HOST_HOSTONLY 2375; then
+              echo "Docker daemon ready"
+              exit 0
+            fi
+            echo "Waiting $i/30"
+            sleep 2
+          done
+          echo "Timeout after 60 seconds" >&2
+          exit 1
+      - name: DEBUG
+        run: |
+          echo "PWD: $(pwd)"
+          echo "go path: $(go env GOPATH)"
+          echo "list pwd without docker"
+          ls -lah $(pwd)
+          echo "list / in docker"
+          docker run --rm -v "/:/app:ro" alpine ls -lah /app
+          echo "List pwd with docker"
+          docker run --rm -v $(pwd):/proj:ro alpine ls -lah /proj
+      #- name: Build using docker:dind service
+      #  run: |
+      #    export DOCKER_HOST=tcp://docker-dind:2375
+      #    make build GOTIFY_VERSION=${{ inputs.gotify-version }}
+      #- name: Upload all
+      #  run: |
+      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
+      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so
+      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm-7.so \
+      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm-7.so
+      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm64.so \
+      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm64.so
