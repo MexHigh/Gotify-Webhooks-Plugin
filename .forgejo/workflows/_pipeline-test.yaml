@@ -3,24 +3,15 @@ on:
 
 jobs:
   build-and-push-plugin:
-    runs-on: alpine-node-lts
-    #services:
-    #  docker-dind:
-    #    image: docker:dind
-    #    options: --privileged
-    #    env:
-    #      DOCKER_TLS_CERTDIR: ""
-    #    ports:
-    #      - 2375:2375
-    #    volumes:
-    #      - "/workspace:/workspace"
+    runs-on: docker
     container:
+      # We need to use docker:dind directly instead of via `services`
+      # since the Gotify Makefile uses `docker run` with volume mounts.
+      # Mounting them to the dind service is not only hacky, but also
+      # volume mounts are forbidden by the runner. 
       image: docker:dind
       options: --privileged
     env:
-      #_DOCKER_HOST_HOSTONLY: docker-dind
-      #DOCKER_HOST: tcp://docker-dind:2375
-      #PODMAN_USERNS: keep-ip
       DOCKER_HOST: unix:///var/lib/docker.sock
     steps:
       - name: Install dependencies
@@ -46,24 +37,14 @@ jobs:
           docker info
       - name: Download tools
         run: make download-tools GOTIFY_VERSION=v2.9.1
-      #- name: DEBUG
-      #  run: |
-      #    echo "PWD: $(pwd)"
-      #    echo "go path: $(go env GOPATH)"
-      #    echo "list pwd without docker"
-      #    ls -lah $(pwd)
-      #    echo "list / in docker"
-      #    docker run --rm -v "/:/app:ro" alpine ls -lah /app
-      #    echo "List pwd with docker"
-      #    docker run --rm -v $(pwd):/proj:ro alpine ls -lah /proj
       - name: Build
         run: |
           make build GOTIFY_VERSION=v2.9.1
-      #- name: Upload all
-      #  run: |
-      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
-      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so
-      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm-7.so \
-      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm-7.so
-      #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm64.so \
-      #      ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm64.so
+      - name: Upload all
+        run: |
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm-7.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm-7.so
+          curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-arm64.so \
+            ${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-arm64.so
