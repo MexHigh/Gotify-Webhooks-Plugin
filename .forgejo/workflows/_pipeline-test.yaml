@@ -17,8 +17,6 @@ jobs:
     container:
       image: docker:dind
       options: --privileged
-      env:
-        DOCKER_TLS_CERTDIR: ""
     env:
       #_DOCKER_HOST_HOSTONLY: docker-dind
       #DOCKER_HOST: tcp://docker-dind:2375
@@ -26,7 +24,7 @@ jobs:
       DOCKER_HOST: unix:///var/lib/docker.sock
     steps:
       - name: Install dependencies
-        run: apk add --no-cache git nodejs jq make go
+        run: apk add --no-cache bash git nodejs jq make go
       - name: Checkout
         uses: actions/checkout@v6
         with:
