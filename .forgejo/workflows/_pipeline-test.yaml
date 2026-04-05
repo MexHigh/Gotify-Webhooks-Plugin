@@ -15,7 +15,7 @@ jobs:
       DOCKER_HOST: unix:///var/lib/docker.sock
     steps:
       - name: Install dependencies
-        run: apk add --no-cache bash git nodejs jq make go
+        run: apk add --no-cache bash git nodejs jq make go curl
       - name: Checkout
         uses: actions/checkout@v6
         with:
