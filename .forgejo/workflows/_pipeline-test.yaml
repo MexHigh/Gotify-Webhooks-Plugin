@@ -4,55 +4,63 @@ on:
 jobs:
   build-and-push-plugin:
     runs-on: alpine-node-lts
-    services:
-      docker-dind:
-        image: docker:dind
-        options: --privileged
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        ports:
-          - 2375:2375
-        volumes:
-          - "/workspace:/workspace"
+    #services:
+    #  docker-dind:
+    #    image: docker:dind
+    #    options: --privileged
+    #    env:
+    #      DOCKER_TLS_CERTDIR: ""
+    #    ports:
+    #      - 2375:2375
+    #    volumes:
+    #      - "/workspace:/workspace"
+    container:
+      image: docker:dind
+      options: --privileged
+      env:
+        DOCKER_TLS_CERTDIR: ""
     env:
-      _DOCKER_HOST_HOSTONLY: docker-dind
-      DOCKER_HOST: tcp://docker-dind:2375
-      PODMAN_USERNS: keep-ip
+      #_DOCKER_HOST_HOSTONLY: docker-dind
+      #DOCKER_HOST: tcp://docker-dind:2375
+      #PODMAN_USERNS: keep-ip
+      DOCKER_HOST: unix:///var/lib/docker.sock
     steps:
+      - name: Install dependencies
+        run: apk add --no-cache git node jq make go
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install dependencies
-        run: apk add --no-cache jq make go docker-cli
-      - name: Download tools
-        run: make download-tools GOTIFY_VERSION=v2.9.1
-      - name: Wait for docker daemon to come up
+      - name: Start Docker daemon
         run: |
+          dockerd-entrypoint.sh &
+          
           for i in {1..30}; do
-            if nc -z $_DOCKER_HOST_HOSTONLY 2375; then
+            if docker info >/dev/null 2>&1; then
               echo "Docker daemon ready"
-              exit 0
+              break
             fi
             echo "Waiting $i/30"
             sleep 2
           done
-          echo "Timeout after 60 seconds" >&2
-          exit 1
-      - name: DEBUG
-        run: |
-          echo "PWD: $(pwd)"
-          echo "go path: $(go env GOPATH)"
-          echo "list pwd without docker"
-          ls -lah $(pwd)
-          echo "list / in docker"
-          docker run --rm -v "/:/app:ro" alpine ls -lah /app
-          echo "List pwd with docker"
-          docker run --rm -v $(pwd):/proj:ro alpine ls -lah /proj
-      #- name: Build using docker:dind service
+          
+          # Check
+          docker info
+      - name: Download tools
+        run: make download-tools GOTIFY_VERSION=v2.9.1
+      #- name: DEBUG
       #  run: |
-      #    export DOCKER_HOST=tcp://docker-dind:2375
-      #    make build GOTIFY_VERSION=${{ inputs.gotify-version }}
+      #    echo "PWD: $(pwd)"
+      #    echo "go path: $(go env GOPATH)"
+      #    echo "list pwd without docker"
+      #    ls -lah $(pwd)
+      #    echo "list / in docker"
+      #    docker run --rm -v "/:/app:ro" alpine ls -lah /app
+      #    echo "List pwd with docker"
+      #    docker run --rm -v $(pwd):/proj:ro alpine ls -lah /proj
+      - name: Build
+        run: |
+          make build GOTIFY_VERSION=v2.9.1
       #- name: Upload all
       #  run: |
       #    curl --user ${{ forgejo.actor }}:${{ secrets.REGISTRY_TOKEN }} --upload-file build/${{ inputs.package-name }}-linux-amd64.so \
