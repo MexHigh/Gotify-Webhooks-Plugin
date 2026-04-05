@@ -6,7 +6,7 @@ jobs:
     runs-on: alpine-node-lts
     services:
       docker-dind:
-        image: docker:24-dind
+        image: docker:dind
         options: --privileged
         env:
           DOCKER_TLS_CERTDIR: ""
