@@ -2,7 +2,7 @@
 
 ### Installation
 
-Just download the latest `.so` file for your architecture from the [package registry](https://git.leon.wtf/leon/gotify-webhooks-plugin/-/packages) or build it yourself with `make build` (required Go and Docker). This uses Gotify's build tools to build against the latest version. The `.so` files are compiled to `build/gotify-webhooks*.so`.
+Select the latest version from the [package registry](https://code.leon.wtf/leon/-/packages/generic/gotify-webhooks/versions) and download the latest `.so` file for your architecture. Alternatively build it yourself with `make build` (required Go and Docker). This uses Gotify's build tools to build against the latest version of Gotify, but it can be adjusted to use a specific tag or commit. The `.so` files are compiled to `build/gotify-webhooks*.so`.
 
 Then simply move the `.so` file to the Gotify plugin directory and restart Gotify.
 
