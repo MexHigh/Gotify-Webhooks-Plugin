@@ -20,10 +20,18 @@ jobs:
     outputs:
       update: ${{ steps.check.outputs.update }}
     steps:
+      - name: Print workflow inputs
+        run: |
+          echo "package-name:   ${{ inputs.package-name }}"
+          echo "target-tag:     ${{ inputs.target-tag }}"
+          echo "gotify-version: ${{ inputs.gotify-version }}"
+          echo "gp-version:     ${{ inputs.go-version }}"
       - name: Check if update is required
         id: check
         run: |
-          if curl --head --output /dev/null --fail "${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/${{ inputs.package-name }}-linux-amd64.so"
+          export CHECK_URL="${{ forgejo.server_url }}/api/v1/packages/${{ forgejo.repository_owner }}/generic/${{ inputs.package-name }}/${{ inputs.target-tag }}-gotify_${{ inputs.gotify-version }}-go_${{ inputs.go-version }}/files"
+          echo "Checking package via URL: $CHECK_URL"
+          if curl --fail "$CHECK_URL"
           then
             echo "Package does exist, no update required."
             echo "update=no" >> $FORGEJO_OUTPUT
@@ -47,12 +55,6 @@ jobs:
     env:
       DOCKER_HOST: unix:///var/lib/docker.sock
     steps:
-      - name: Print inputs
-        run: |
-          echo "package-name:   ${{ inputs.package-name }}"
-          echo "target-tag:     ${{ inputs.target-tag }}"
-          echo "gotify-version: ${{ inputs.gotify-version }}"
-          echo "gp-version:     ${{ inputs.go-version }}"
       - name: Install dependencies
         run: apk add --no-cache bash git nodejs jq make go curl
       - name: Checkout
